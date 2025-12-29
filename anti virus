@@ -1,0 +1,211 @@
+"""
+טוב אז לקוד הזה יש שלוש פונקציות: שליחת הקובץ, קריאת הסריקה ותצוגה.
+ את פונקציית התצוגה והמיין עשיתי עם קלוד וביקשתי ממנו לשים הערות לאורך כל הקוד.
+
+"""
+
+
+import requests
+import time
+import os
+
+# ========== Configuration ==========
+# API_KEY and FILE_PATH will be requested from user at runtime
+
+# ========== Functions ==========
+
+def upload_file(file_path, api_key):
+    """
+    Upload a file to VirusTotal for scanning
+    """
+    # Check if file exists
+    if not os.path.exists(file_path):
+        print(f"❌ Error: File not found: {file_path}")
+        return None
+    
+    # Get file size
+    file_size = os.path.getsize(file_path)
+    print(f"📄 File: {os.path.basename(file_path)}")
+    print(f"📊 Size: {file_size / 1024:.2f} KB")
+    
+    # Check size limit (32MB for free accounts)
+    if file_size > 32 * 1024 * 1024:
+        print("⚠️ File too large (over 32MB). Free accounts limited to 32MB.")
+        return None
+    
+    # Upload URL
+    url = "https://www.virustotal.com/api/v3/files"
+    
+    # Headers with API key
+    headers = {
+        "x-apikey": api_key
+    }
+    
+    print("\n📤 Uploading file to VirusTotal...")
+    
+    try:
+        # Open and upload file
+        with open(file_path, 'rb') as f:
+            files = {"file": (os.path.basename(file_path), f)}
+            response = requests.post(url, headers=headers, files=files)
+        
+        # Check response
+        if response.status_code == 200:
+            data = response.json()
+            print("✅ Upload successful!")
+            return data
+        else:
+            print(f"❌ Upload failed with status code: {response.status_code}")
+            print(f"Response: {response.text}")
+            return None
+            
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        return None
+
+
+def get_analysis_report(analysis_id, api_key):
+    """
+    Get the scan report using analysis ID
+    """
+    url = f"https://www.virustotal.com/api/v3/analyses/{analysis_id}"
+    
+    headers = {
+        "x-apikey": api_key
+    }
+    
+    try:
+        response = requests.get(url, headers=headers)
+        
+        if response.status_code == 200:
+            return response.json()
+        else:
+            print(f"❌ Error getting report: {response.status_code}")
+            return None
+            
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        return None
+
+
+def display_results(report_data):
+    """
+    Display scan results in a readable format
+    """
+    if not report_data or "data" not in report_data:
+        print("❌ No valid report data")
+        return
+    
+    attrs = report_data["data"]["attributes"]
+    stats = attrs.get("stats", {})
+    
+    print("\n" + "="*60)
+    print("📊 SCAN RESULTS")
+    print("="*60)
+    
+    # Status
+    status = attrs.get("status", "unknown")
+    print(f"Status: {status}")
+    
+    # Statistics
+    malicious = stats.get("malicious", 0)
+    suspicious = stats.get("suspicious", 0)
+    undetected = stats.get("undetected", 0)
+    harmless = stats.get("harmless", 0)
+    total = sum(stats.values())
+    
+    print(f"\n🔍 Detection Results:")
+    print(f"   Malicious:   {malicious}")
+    print(f"   Suspicious:  {suspicious}")
+    print(f"   Undetected:  {undetected}")
+    print(f"   Harmless:    {harmless}")
+    print(f"   Total scans: {total}")
+    
+    # Final verdict
+    print(f"\n🎯 Final Verdict:")
+    if malicious == 0 and suspicious == 0:
+        print("   ✅ File appears to be CLEAN")
+    elif malicious <= 3:
+        print(f"   ⚠️ File is SUSPICIOUS ({malicious} detections)")
+        print("   This could be a false positive")
+    else:
+        print(f"   ❌ File is likely INFECTED ({malicious} detections)")
+        print("   Recommended action: DELETE this file")
+    
+    print("="*60)
+
+
+# ========== Main Program ==========
+
+def main():
+    """
+    Main function to upload and scan file
+    """
+    print("="*60)
+    print("🛡️  VirusTotal File Scanner")
+    print("="*60)
+    
+    # Get API key from user
+    print("\n🔑 API Key Setup")
+    print("   Get your free API key from: https://www.virustotal.com")
+    api_key = input("\nEnter your VirusTotal API Key: ").strip()
+    
+    if not api_key:
+        print("❌ API key is required. Exiting.")
+        return
+    
+    # Get file path from user
+    print("\n📁 File Selection")
+    print("   Enter the full path to the file you want to scan")
+    print("   Example: C:\\Users\\YourName\\Downloads\\file.exe")
+    file_path = input("\nEnter file path: ").strip()
+    
+    # Remove quotes if user copied path with quotes
+    file_path = file_path.strip('"').strip("'")
+    
+    if not file_path:
+        print("❌ File path is required. Exiting.")
+        return
+    
+    print("\n" + "="*60)
+    
+    # Step 1: Upload file
+    upload_result = upload_file(file_path, api_key)
+    
+    if not upload_result:
+        print("\n❌ Upload failed. Exiting.")
+        return
+    
+    # Get analysis ID
+    analysis_id = upload_result["data"]["id"]
+    print(f"📋 Analysis ID: {analysis_id}")
+    
+    # Step 2: Wait for scan to complete
+    print("\n⏳ Waiting for scan to complete...")
+    print("   (This usually takes 10-30 seconds)")
+    
+    max_attempts = 10
+    for attempt in range(1, max_attempts + 1):
+        print(f"\n🔄 Check attempt {attempt}/{max_attempts}")
+        
+        time.sleep(10)  # Wait 10 seconds between checks
+        
+        report = get_analysis_report(analysis_id, api_key)
+        
+        if report:
+            status = report["data"]["attributes"].get("status")
+            
+            if status == "completed":
+                print("✅ Scan completed!")
+                display_results(report)
+                return
+            else:
+                print(f"   Status: {status} - still scanning...")
+    
+    print("\n⚠️ Scan is taking longer than expected.")
+    print(f"   You can check results later with analysis ID: {analysis_id}")
+
+
+# ========== Run Program ==========
+if __name__ == "__main__":
+    main()
